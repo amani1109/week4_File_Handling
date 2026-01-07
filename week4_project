@@ -1,0 +1,188 @@
+import json
+import csv
+import shutil
+from dataclasses import dataclass
+from datetime import datetime
+from pathlib import Path
+from collections import defaultdict
+
+DATA_DIR = Path("data")
+DATA_FILE = DATA_DIR / "expenses.json"
+BACKUP_DIR = DATA_DIR / "backup"
+EXPORT_DIR = DATA_DIR / "exports"
+
+VALID_CATEGORIES = {
+    "Food", "Transport", "Rent", "Utilities",
+    "Entertainment", "Health", "Education", "Other"
+}
+
+
+@dataclass
+class Expense:
+    date: str
+    amount: float
+    category: str
+    description: str
+
+    def __post_init__(self):
+        self.validate()
+
+    def validate(self):
+        try:
+            datetime.strptime(self.date, "%Y-%m-%d")
+        except ValueError:
+            raise ValueError("Date must be YYYY-MM-DD")
+
+        if self.amount <= 0:
+            raise ValueError("Amount must be positive")
+
+        if self.category not in VALID_CATEGORIES:
+            raise ValueError("Invalid category")
+
+        if not self.description.strip():
+            raise ValueError("Description cannot be empty")
+
+    def to_dict(self):
+        return self.__dict__
+
+def load_expenses():
+    if not DATA_FILE.exists():
+        return []
+    with open(DATA_FILE, "r") as f:
+        return [Expense(**e) for e in json.load(f)]
+
+def save_expenses(expenses):
+    DATA_DIR.mkdir(exist_ok=True)
+    with open(DATA_FILE, "w") as f:
+        json.dump([e.to_dict() for e in expenses], f, indent=4)
+
+def backup_data():
+    BACKUP_DIR.mkdir(exist_ok=True)
+    if DATA_FILE.exists():
+        shutil.copy(DATA_FILE, BACKUP_DIR / "expenses_backup.json")
+
+def restore_backup():
+    backup = BACKUP_DIR / "expenses_backup.json"
+    if backup.exists():
+        shutil.copy(backup, DATA_FILE)
+
+def export_csv(expenses):
+    EXPORT_DIR.mkdir(exist_ok=True)
+    with open(EXPORT_DIR / "expenses.csv", "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["date", "amount", "category", "description"])
+        for e in expenses:
+            writer.writerow([e.date, e.amount, e.category, e.description])
+
+def monthly_report(expenses):
+    total = sum(e.amount for e in expenses)
+    print(f"\nTotal Spent: ${total:.2f}")
+
+    categories = defaultdict(float)
+    for e in expenses:
+        categories[e.category] += e.amount
+
+    print("\nCategory Breakdown:")
+    for cat, amt in categories.items():
+        bar = "█" * int(amt / 10)
+        print(f"{cat:<15} ${amt:>8.2f} {bar}")
+
+def safe_float(prompt):
+    while True:
+        try:
+            return float(input(prompt))
+        except ValueError:
+            print("Invalid number.")
+
+class FinanceTracker:
+    def __init__(self):
+        self.expenses = load_expenses()
+
+    def menu(self):
+        print("\n" + "=" * 40)
+        print(" PERSONAL FINANCE TRACKER ")
+        print("=" * 40)
+        print("1. Add Expense")
+        print("2. View Expenses")
+        print("3. Search Expenses")
+        print("4. Monthly Report")
+        print("5. Export CSV")
+        print("6. Backup Data")
+        print("7. Restore Backup")
+        print("0. Exit")
+
+    def run(self):
+        while True:
+            self.menu()
+            choice = input("Choice: ").strip()
+
+            if choice == "1":
+                self.add_expense()
+            elif choice == "2":
+                self.view_expenses()
+            elif choice == "3":
+                self.search_expenses()
+            elif choice == "4":
+                self.generate_report()
+            elif choice == "5":
+                export_csv(self.expenses)
+                print("Data exported.")
+            elif choice == "6":
+                backup_data()
+                print("Backup created.")
+            elif choice == "7":
+                restore_backup()
+                self.expenses = load_expenses()
+                print("Backup restored.")
+            elif choice == "0":
+                save_expenses(self.expenses)
+                print("Goodbye!")
+                break
+            else:
+                print("Invalid choice.")
+
+    def add_expense(self):
+        try:
+            date = input("Date (YYYY-MM-DD): ")
+            amount = safe_float("Amount: ")
+            print("Categories:", ", ".join(VALID_CATEGORIES))
+            category = input("Category: ")
+            desc = input("Description: ")
+
+            expense = Expense(date, amount, category, desc)
+            self.expenses.append(expense)
+            save_expenses(self.expenses)
+            print("Expense added.")
+        except ValueError as e:
+            print("Error:", e)
+
+    def view_expenses(self):
+        if not self.expenses:
+            print("No expenses found.")
+            return
+        for i, e in enumerate(self.expenses, 1):
+            print(f"{i}. {e.date} | ${e.amount:.2f} | {e.category} | {e.description}")
+
+    def search_expenses(self):
+        keyword = input("Search keyword: ").lower()
+        results = [
+            e for e in self.expenses
+            if keyword in e.description.lower() or keyword in e.category.lower()
+        ]
+        for e in results:
+            print(f"{e.date} | ${e.amount:.2f} | {e.category} | {e.description}")
+
+    def generate_report(self):
+        year = input("Year (YYYY): ")
+        month = input("Month (MM): ")
+        filtered = [
+            e for e in self.expenses
+            if e.date.startswith(f"{year}-{month}")
+        ]
+        if not filtered:
+            print("No data for this month.")
+            return
+        monthly_report(filtered)
+
+if __name__ == "__main__":
+    FinanceTracker().run()
